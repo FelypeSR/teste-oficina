@@ -1,0 +1,6 @@
+# Chaves de API e variáveis de ambiente: nunca vão para o repositório
+.env
+
+# Arquivos gerados pelo Python
+__pycache__/
+.venv/
