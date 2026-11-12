@@ -26,6 +26,7 @@ Comandos no chat:
 
 from datetime import date
 from pathlib import Path
+from dotenv import load_dotenv
 
 # =============================================================================
 # 1. CONFIGURAÇÃO
@@ -44,7 +45,7 @@ CONTEXTO = ""
 #   - valores altos: respostas mais variadas e criativas (e menos confiáveis).
 # O intervalo aceito depende da API escolhida (muitas usam de 0 a 1 ou de 0 a 2).
 # Também dá para trocar durante o chat com o comando /temperatura.
-TEMPERATURA = 0.7
+TEMPERATURA = 0.3
 
 # Arquivo com o prompt de sistema, na mesma pasta deste script.
 ARQUIVO_PROMPT = Path(__file__).parent / "SYSTEM_PROMPT.md"
