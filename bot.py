@@ -15,7 +15,10 @@ O que fica para vocês:
     erros, testes, logs, etc.).
 
 Como rodar:
+    pip install -r requirements.txt   # instala groq e python-dotenv
     python bot.py
+
+    A chave da API fica no arquivo .env (variável API_KEY), nunca no código.
 
 Comandos no chat:
     /temperatura 0.2   troca a temperatura no meio da conversa
@@ -24,13 +27,36 @@ Comandos no chat:
     /sair              encerra
 """
 
+import os
 from datetime import date
 from pathlib import Path
-from dotenv import load_dotenv
+
+from dotenv import load_dotenv  # lê o arquivo .env e joga as variáveis em os.environ
+from groq import Groq           # SDK oficial da Groq (API compatível com a da OpenAI)
 
 # =============================================================================
 # 1. CONFIGURAÇÃO
 # =============================================================================
+
+# Carrega o .env. Sem argumentos, o load_dotenv() procura o arquivo começando
+# na pasta deste script e subindo pelas pastas-pai até achar um .env, então
+# funciona tanto com o .env aqui dentro quanto com o da pasta de cima.
+# Variáveis que já existem no ambiente (ex.: export API_KEY=...) NÃO são
+# sobrescritas pelo .env.
+load_dotenv()
+
+# Chave da API da Groq, lida do .env (linha "API_KEY=..."). Nunca escreva a
+# chave direto aqui: o .env fica fora do repositório (ou no .gitignore)
+# justamente para ela não ir para o GitHub.
+API_KEY = os.getenv("API_KEY")
+
+# Modelo usado na Groq. A lista de modelos disponíveis (e quais estão sendo
+# descontinuados) fica em https://console.groq.com/docs/models.
+MODELO = "openai/gpt-oss-120b"
+
+# Cliente da API, criado uma única vez e reaproveitado em todas as chamadas.
+# Se a chave não foi encontrada, fica None e o main() avisa antes de começar.
+cliente = Groq(api_key=API_KEY) if API_KEY else None
 
 # Nome da empresa atendida. Entra no lugar de {{NOME_EMPRESA}}.
 NOME_EMPRESA = "Provedor Exemplo"
@@ -43,7 +69,7 @@ CONTEXTO = ""
 # TEMPERATURA: controla o quanto o modelo "arrisca" ao escolher as palavras.
 #   - valores baixos (perto de 0): respostas mais previsíveis e repetitivas;
 #   - valores altos: respostas mais variadas e criativas (e menos confiáveis).
-# O intervalo aceito depende da API escolhida (muitas usam de 0 a 1 ou de 0 a 2).
+# Na Groq o intervalo aceito é de 0 a 2.
 # Também dá para trocar durante o chat com o comando /temperatura.
 TEMPERATURA = 0.3
 
@@ -81,7 +107,7 @@ def montar_system_prompt() -> str:
 
 
 # =============================================================================
-# 3. CHAMADA AO LLM  >>> PARTE DE VOCÊS <<<
+# 3. CHAMADA AO LLM (Groq)
 # =============================================================================
 
 def chamar_llm(system_prompt: str, mensagens: list[dict], temperatura: float) -> str:
@@ -100,24 +126,31 @@ def chamar_llm(system_prompt: str, mensagens: list[dict], temperatura: float) ->
       O texto que o modelo escreveu. Pelo SYSTEM_PROMPT.md, deveria ser um
       JSON com os campos resposta, fonte, encaminhar e categoria.
 
-    Passos típicos, seja qual for a API escolhida:
-      1. Instalar o pacote (SDK) da API, ou fazer a requisição HTTP direto.
-      2. Ler a chave de uma variável de ambiente. Nunca escrevam a chave
-         no código nem façam commit dela.
-      3. Enviar o system_prompt, as mensagens e a temperatura. Cada API
-         tem o seu jeito de receber o prompt de sistema: algumas usam um
-         campo separado, outras uma mensagem com role "system" no começo
-         da lista.
-      4. Pegar o texto da resposta e devolver com `return`.
-
-    Atenção: nem todo modelo aceita o parâmetro de temperatura, e o
-    intervalo de valores muda de uma API para outra. Confiram na
-    documentação da API que escolherem.
+    Como funciona com a Groq:
+      1. O pacote `groq` (SDK) já foi importado lá em cima.
+      2. A chave vem do .env (API_KEY) e já está dentro do `cliente`.
+      3. A Groq segue o formato da OpenAI: o prompt de sistema vai como a
+         PRIMEIRA mensagem da lista, com role "system". Depois vem a
+         conversa (user/assistant) do jeito que já está em `mensagens`.
+      4. O texto da resposta fica em resposta.choices[0].message.content.
     """
-    raise NotImplementedError(
-        "A função chamar_llm() ainda não foi implementada.\n"
-        "Abra o bot.py, vá até a seção 3 e conecte a API do LLM que vocês escolheram."
+    # Monta a lista final: regras do bot primeiro, depois o histórico.
+    # Criamos uma lista NOVA para não colocar o "system" dentro do histórico
+    # do main() (senão ele seria repetido a cada pergunta).
+    mensagens_api = [{"role": "system", "content": system_prompt}] + mensagens
+
+    # Chamada à API. Se a chave estiver errada, a internet cair ou o limite
+    # de uso estourar, o SDK levanta uma exceção (groq.APIError e derivadas).
+    # Tratar isso direito é uma das tarefas de "levar para produção".
+    resposta = cliente.chat.completions.create(
+        model=MODELO,             # qual modelo da Groq responder
+        messages=mensagens_api,   # prompt de sistema + conversa inteira
+        temperature=temperatura,  # 0 = previsível ... 2 = bem criativo
     )
+
+    # A API pode devolver várias alternativas (choices); pedimos só uma,
+    # então pegamos a primeira. `content` é o texto que o modelo escreveu.
+    return resposta.choices[0].message.content
 
 
 # =============================================================================
@@ -125,6 +158,13 @@ def chamar_llm(system_prompt: str, mensagens: list[dict], temperatura: float) ->
 # =============================================================================
 
 def main() -> None:
+    # Sem chave não tem como falar com a API: avisa e sai antes do chat.
+    if cliente is None:
+        print("API_KEY não encontrada.\n"
+              "Crie um arquivo .env com a linha API_KEY=sua_chave_da_groq "
+              "(nesta pasta ou numa pasta acima) e rode de novo.")
+        return
+
     system_prompt = montar_system_prompt()
     temperatura = TEMPERATURA
 
